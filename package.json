@@ -9,7 +9,7 @@
     "deploy": "wrangler deploy",
     "db:create": "wrangler d1 create google-mcp-db",
     "db:migrate": "wrangler d1 execute google-mcp-db --local --file=./src/db/schema.sql",
-    "db:migrate:prod": "wrangler d1 execute google-mcp-db --file=./src/db/schema.sql",
+    "db:migrate:prod": "wrangler d1 execute google-mcp-db --remote --file=./src/db/schema.sql",
     "types": "wrangler types",
     "typecheck": "npm run types && tsc --noEmit"
   },
