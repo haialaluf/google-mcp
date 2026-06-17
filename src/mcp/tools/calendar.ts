@@ -1,6 +1,33 @@
 import { z } from 'zod';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import timezone from 'dayjs/plugin/timezone';
 import { calendar, EVENT_COLORS, type EventColor } from '../../lib/google.ts';
 import type { ToolContext } from '../server.ts';
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
+// A datetime that already carries a 'Z' or '±HH:MM' offset, or an all-day date.
+const HAS_ZONE = /([zZ]|[+-]\d{2}:?\d{2})$/;
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+// Resolve the calendar's IANA timezone (e.g. 'Asia/Jerusalem'), defaulting to UTC.
+async function resolveTimeZone(context: ToolContext, calendarId: string): Promise<string> {
+  const { items } = await calendar.listCalendars({ accessToken: context.accessToken });
+  const entry = calendarId === 'primary'
+    ? items.find((c) => c.primary) ?? items[0]
+    : items.find((c) => c.id === calendarId) ?? items.find((c) => c.primary);
+  return entry?.timeZone ?? 'UTC';
+}
+
+// Interpret a naive datetime in the calendar's zone. Explicit offsets and
+// all-day dates are left as-is — assume calendar time unless told otherwise.
+function qualify(value: string, timeZone: string): string {
+  const v = value.trim();
+  if (DATE_ONLY.test(v) || HAS_ZONE.test(v)) return v;
+  return dayjs.tz(v, timeZone).format(); // ISO 8601 with the zone's offset
+}
 
 export const calendarTools = {
   list_calendars: {
@@ -16,6 +43,7 @@ export const calendarTools = {
         description: cal.description,
         primary: cal.primary ?? false,
         accessRole: cal.accessRole,
+        timeZone: cal.timeZone,
       }));
     },
   },
@@ -34,9 +62,10 @@ export const calendarTools = {
       timeMin: string;
       timeMax: string;
     }) => {
+      const timeZone = await resolveTimeZone(context, params.calendarId);
       const result = await calendar.freeBusy({ accessToken: context.accessToken }, {
-        timeMin: params.timeMin,
-        timeMax: params.timeMax,
+        timeMin: qualify(params.timeMin, timeZone),
+        timeMax: qualify(params.timeMax, timeZone),
         calendarIds: [params.calendarId],
       });
 
@@ -45,7 +74,7 @@ export const calendarTools = {
         return { error: 'Calendar not found or not accessible' };
       }
 
-      return { busy: calendarData.busy };
+      return { timeZone, busy: calendarData.busy };
     },
   },
 
@@ -67,13 +96,15 @@ export const calendarTools = {
       maxResults?: number;
       query?: string;
     }) => {
+      const timeZone = await resolveTimeZone(context, params.calendarId);
       const result = await calendar.listEvents({ accessToken: context.accessToken }, params.calendarId, {
-        timeMin: params.timeMin,
-        timeMax: params.timeMax,
+        timeMin: params.timeMin && qualify(params.timeMin, timeZone),
+        timeMax: params.timeMax && qualify(params.timeMax, timeZone),
         maxResults: params.maxResults,
         q: params.query,
+        timeZone,
       });
-      return result.items.map((event) => ({
+      const events = result.items.map((event) => ({
         id: event.id,
         summary: event.summary,
         description: event.description,
@@ -87,6 +118,7 @@ export const calendarTools = {
           status: a.responseStatus,
         })),
       }));
+      return { timeZone, items: events };
     },
   },
 
@@ -116,6 +148,9 @@ export const calendarTools = {
       attendees?: string[];
       color?: EventColor;
     }) => {
+      // Naive datetimes are interpreted in the calendar's zone unless the
+      // caller passed an explicit one.
+      const timeZone = params.timeZone ?? await resolveTimeZone(context, params.calendarId);
       // Detect all-day events (YYYY-MM-DD format) vs timed events
       const isAllDay = (val: string) => /^\d{4}-\d{2}-\d{2}$/.test(val);
       const event = await calendar.createEvent(
@@ -126,10 +161,10 @@ export const calendarTools = {
           description: params.description,
           start: isAllDay(params.startDateTime)
             ? { date: params.startDateTime }
-            : { dateTime: params.startDateTime, timeZone: params.timeZone },
+            : { dateTime: params.startDateTime, timeZone },
           end: isAllDay(params.endDateTime)
             ? { date: params.endDateTime }
-            : { dateTime: params.endDateTime, timeZone: params.timeZone },
+            : { dateTime: params.endDateTime, timeZone },
           location: params.location,
           attendees: params.attendees?.map((email) => ({ email })),
           guestsCanModify: false,
@@ -145,6 +180,7 @@ export const calendarTools = {
         start: event.start,
         end: event.end,
         link: event.htmlLink,
+        timeZone,
       };
     },
   },
@@ -182,15 +218,19 @@ export const calendarTools = {
       if (params.color) updateData.colorId = EVENT_COLORS[params.color];
       // Detect all-day events (YYYY-MM-DD format) vs timed events
       const isAllDay = (val: string) => /^\d{4}-\d{2}-\d{2}$/.test(val);
+      // Only resolve the calendar zone when a timed datetime is actually changing.
+      const timeZone = (params.startDateTime || params.endDateTime)
+        ? params.timeZone ?? await resolveTimeZone(context, params.calendarId)
+        : params.timeZone;
       if (params.startDateTime) {
         updateData.start = isAllDay(params.startDateTime)
           ? { date: params.startDateTime }
-          : { dateTime: params.startDateTime, timeZone: params.timeZone };
+          : { dateTime: params.startDateTime, timeZone };
       }
       if (params.endDateTime) {
         updateData.end = isAllDay(params.endDateTime)
           ? { date: params.endDateTime }
-          : { dateTime: params.endDateTime, timeZone: params.timeZone };
+          : { dateTime: params.endDateTime, timeZone };
       }
 
       const event = await calendar.updateEvent(

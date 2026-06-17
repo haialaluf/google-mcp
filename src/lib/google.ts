@@ -74,6 +74,7 @@ export const calendar = {
       timeMax?: string;
       maxResults?: number;
       q?: string;
+      timeZone?: string;
     }
   ) {
     const searchParams = new URLSearchParams();
@@ -85,6 +86,8 @@ export const calendar = {
     if (params?.timeMax) searchParams.set('timeMax', params.timeMax);
     if (params?.maxResults) searchParams.set('maxResults', params.maxResults.toString());
     if (params?.q) searchParams.set('q', params.q);
+    // Format response times in the calendar's zone (also the default query zone).
+    if (params?.timeZone) searchParams.set('timeZone', params.timeZone);
 
     const url = `${CALENDAR_API}/calendars/${encodeURIComponent(calendarId)}/events?${searchParams}`;
     const response = await googleFetch(url, options);
@@ -266,6 +269,7 @@ export interface CalendarListEntry {
   description?: string;
   primary?: boolean;
   accessRole: string;
+  timeZone?: string;
 }
 
 export interface CalendarEvent {
