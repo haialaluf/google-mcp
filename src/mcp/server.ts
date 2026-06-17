@@ -1,8 +1,3 @@
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { calendarTools } from './tools/calendar.ts';
 import { sheetsTools } from './tools/sheets.ts';
@@ -50,78 +45,6 @@ async function getAuthorizedTools(scopes: string[], db: D1Database, apiKey: stri
 
     return true;
   });
-}
-
-export function createMcpServer() {
-  const server = new Server(
-    {
-      name: 'google-mcp',
-      version: '0.1.0',
-    },
-    {
-      capabilities: {
-        tools: {},
-      },
-    }
-  );
-
-  // List available tools
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
-    return {
-      tools: Object.entries(allTools).map(([name, tool]) => ({
-        name,
-        description: tool.description,
-        inputSchema: z.toJSONSchema(tool.parameters),
-      })),
-    };
-  });
-
-  // Handle tool calls
-  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-    const toolName = request.params.name as ToolName;
-    const tool = allTools[toolName];
-
-    if (!tool) {
-      throw new Error(`Unknown tool: ${toolName}`);
-    }
-
-    // Access token should be passed via extra context
-    const accessToken = (extra as any)?.accessToken;
-    if (!accessToken) {
-      throw new Error('No access token provided');
-    }
-
-    try {
-      const params = tool.parameters.parse(request.params.arguments ?? {});
-      const result = await tool.execute(accessToken, params as any);
-
-      // structuredContent must be an object, wrap arrays
-      const structuredContent = Array.isArray(result) ? { items: result } : result;
-
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify(result, null, 2),
-          },
-        ],
-        structuredContent: structuredContent as Record<string, unknown>,
-      };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: `Error: ${message}`,
-          },
-        ],
-        isError: true,
-      };
-    }
-  });
-
-  return server;
 }
 
 // HTTP transport handler for MCP
