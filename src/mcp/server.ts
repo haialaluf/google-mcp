@@ -14,6 +14,10 @@ export interface ToolContext {
   accessToken: string;
   db: D1Database;
   apiKey: string;
+  // Identifies the end contact on whose behalf the call is made. Forwarded by
+  // the caller (acrm-api) as the `contact-id` header. Absent for trusted
+  // internal/operator calls. Used to scope per-contact event ownership.
+  contactId?: string;
 }
 
 // Combine all tools
@@ -144,10 +148,11 @@ export async function handleMcpRequest(
   accessToken: string,
   scopes: string[],
   db: D1Database,
-  apiKey: string
+  apiKey: string,
+  contactId?: string
 ): Promise<McpHttpResponse> {
   const authorizedTools = await getAuthorizedTools(scopes, db, apiKey);
-  const context: ToolContext = { accessToken, db, apiKey };
+  const context: ToolContext = { accessToken, db, apiKey, contactId };
 
   try {
     // Handle the request based on method

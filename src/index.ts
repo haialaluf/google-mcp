@@ -292,6 +292,10 @@ app.post('/mcp', async (c) => {
   let accessToken = record.google_access_token;
   const scopes: string[] = JSON.parse(record.scopes);
 
+  // End contact the call is made on behalf of (set by acrm-api). Drives
+  // per-contact event ownership; absent for trusted internal/operator calls.
+  const contactId = c.req.header('contact-id');
+
   // Try to refresh token if needed (we'll detect this on API error)
   const refreshTokenIfNeeded = async () => {
     try {
@@ -322,14 +326,14 @@ app.post('/mcp', async (c) => {
   }
 
   // Handle the MCP request
-  let response = await handleMcpRequest(request, accessToken, scopes, c.env.DB, apiKey);
+  let response = await handleMcpRequest(request, accessToken, scopes, c.env.DB, apiKey, contactId);
 
   // If we got a Google API error that might be auth-related, try refreshing
   if (response.error?.message?.includes('401') || response.error?.message?.includes('403')) {
     const newToken = await refreshTokenIfNeeded();
     if (newToken) {
       accessToken = newToken;
-      response = await handleMcpRequest(request, accessToken, scopes, c.env.DB, apiKey);
+      response = await handleMcpRequest(request, accessToken, scopes, c.env.DB, apiKey, contactId);
     }
   }
 

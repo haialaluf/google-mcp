@@ -12,6 +12,31 @@ dayjs.extend(timezone);
 const HAS_ZONE = /([zZ]|[+-]\d{2}:?\d{2})$/;
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
+// Key under extendedProperties.private that records the contact who owns an
+// event. The calendar is shared across all of an org's contacts, so this stamp
+// is what scopes read/modify to a single contact.
+const OWNER_KEY = 'acrm_contact_id';
+
+// Reject the operation unless the target event belongs to the current contact.
+// Skipped for trusted internal/operator calls (no contactId). Events with no
+// owner stamp (created directly in Google Calendar, or before this guard) are
+// treated as not owned by any contact and therefore not modifiable by one.
+async function assertEventOwnership(
+  context: ToolContext,
+  calendarId: string,
+  eventId: string
+): Promise<void> {
+  if (!context.contactId) return;
+
+  const event = await calendar.getEvent({ accessToken: context.accessToken }, calendarId, eventId);
+
+  if (event.extendedProperties?.private?.[OWNER_KEY] !== context.contactId) {
+    // Same message whether the event belongs to another contact or has no
+    // stamp — avoids leaking whether/whose event it is.
+    throw new Error('This event does not belong to you and cannot be modified.');
+  }
+}
+
 // Resolve the calendar's IANA timezone (e.g. 'Asia/Jerusalem'), defaulting to UTC.
 async function resolveTimeZone(context: ToolContext, calendarId: string): Promise<string> {
   const { items } = await calendar.listCalendars({ accessToken: context.accessToken });
@@ -103,6 +128,9 @@ export const calendarTools = {
         maxResults: params.maxResults,
         q: params.query,
         timeZone,
+        // Contact-scoped calls only ever see their own events; operator calls
+        // (no contactId) see everything.
+        privateExtendedProperty: context.contactId ? `${OWNER_KEY}=${context.contactId}` : undefined,
       });
       const events = result.items.map((event) => ({
         id: event.id,
@@ -171,6 +199,11 @@ export const calendarTools = {
           guestsCanInviteOthers: false,
           guestsCanSeeOtherGuests: false,
           colorId: params.color ? EVENT_COLORS[params.color] : undefined,
+          // Stamp ownership so this contact (and only this contact) can later
+          // list/update/delete it. Omitted for operator calls.
+          extendedProperties: context.contactId
+            ? { private: { [OWNER_KEY]: context.contactId } }
+            : undefined,
         },
         'all'
       );
@@ -211,6 +244,8 @@ export const calendarTools = {
       location?: string;
       color?: EventColor;
     }) => {
+      await assertEventOwnership(context, params.calendarId, params.eventId);
+
       const updateData: Record<string, unknown> = {};
       if (params.summary) updateData.summary = params.summary;
       if (params.description) updateData.description = params.description;
@@ -258,6 +293,8 @@ export const calendarTools = {
       eventId: z.string().describe('Event ID to delete'),
     }),
     execute: async (context: ToolContext, params: { calendarId: string; eventId: string }) => {
+      await assertEventOwnership(context, params.calendarId, params.eventId);
+
       await calendar.deleteEvent({ accessToken: context.accessToken }, params.calendarId, params.eventId);
       return { success: true, message: `Event ${params.eventId} deleted` };
     },

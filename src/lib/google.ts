@@ -75,6 +75,7 @@ export const calendar = {
       maxResults?: number;
       q?: string;
       timeZone?: string;
+      privateExtendedProperty?: string;
     }
   ) {
     const searchParams = new URLSearchParams();
@@ -88,10 +89,22 @@ export const calendar = {
     if (params?.q) searchParams.set('q', params.q);
     // Format response times in the calendar's zone (also the default query zone).
     if (params?.timeZone) searchParams.set('timeZone', params.timeZone);
+    // Server-side filter on app-private metadata, e.g. 'acrm_contact_id=<id>'.
+    if (params?.privateExtendedProperty) {
+      searchParams.set('privateExtendedProperty', params.privateExtendedProperty);
+    }
 
     const url = `${CALENDAR_API}/calendars/${encodeURIComponent(calendarId)}/events?${searchParams}`;
     const response = await googleFetch(url, options);
     return handleResponse<{ items: CalendarEvent[] }>(response);
+  },
+
+  async getEvent(options: GoogleApiOptions, calendarId: string, eventId: string) {
+    const response = await googleFetch(
+      `${CALENDAR_API}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+      options
+    );
+    return handleResponse<CalendarEvent>(response);
   },
 
   async createEvent(
@@ -272,6 +285,13 @@ export interface CalendarListEntry {
   timeZone?: string;
 }
 
+// App-specific key/value metadata stored on an event. `private` is visible only
+// to the calendar owner (not attendees) and is queryable via privateExtendedProperty.
+export interface ExtendedProperties {
+  private?: Record<string, string>;
+  shared?: Record<string, string>;
+}
+
 export interface CalendarEvent {
   id: string;
   summary?: string;
@@ -282,6 +302,7 @@ export interface CalendarEvent {
   attendees?: { email: string; responseStatus?: string }[];
   status?: string;
   htmlLink?: string;
+  extendedProperties?: ExtendedProperties;
 }
 
 export interface CreateEventRequest {
@@ -295,6 +316,7 @@ export interface CreateEventRequest {
   guestsCanInviteOthers?: boolean;
   guestsCanSeeOtherGuests?: boolean;
   colorId?: string;
+  extendedProperties?: ExtendedProperties;
 }
 
 // Google Calendar event color IDs
