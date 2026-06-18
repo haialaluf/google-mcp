@@ -46,6 +46,17 @@ async function resolveTimeZone(context: ToolContext, calendarId: string): Promis
   return entry?.timeZone ?? 'UTC';
 }
 
+const emailSchema = z.email();
+
+// Keep only the entries that are valid email addresses. Returns undefined when
+// nothing valid remains so the event is created without an attendees field.
+function validAttendees(attendees?: string[]): string[] | undefined {
+  const valid = attendees
+    ?.map((a) => a.trim())
+    .filter((a) => emailSchema.safeParse(a).success);
+  return valid?.length ? valid : undefined;
+}
+
 // Interpret a naive datetime in the calendar's zone. Explicit offsets and
 // all-day dates are left as-is — assume calendar time unless told otherwise.
 function qualify(value: string, timeZone: string): string {
@@ -165,7 +176,7 @@ export const calendarTools = {
       endDateTime: z.string().describe('End time in ISO 8601 format'),
       timeZone: z.string().optional().describe('Time zone (e.g., America/New_York)'),
       location: z.string().optional().describe('Event location'),
-      attendees: z.array(z.string()).optional().describe('List of attendee email addresses'),
+      attendees: z.array(z.string()).optional().describe('Optional list of attendee email addresses. Only pass real email addresses — never phone numbers or names. Omit if no email is known.'),
       color: z.enum(['lavender', 'sage', 'grape', 'flamingo', 'banana', 'tangerine', 'peacock', 'graphite', 'blueberry', 'basil', 'tomato']).optional().describe('Event color'),
     }),
     execute: async (context: ToolContext, params: {
@@ -197,7 +208,7 @@ export const calendarTools = {
             ? { date: params.endDateTime }
             : { dateTime: params.endDateTime, timeZone },
           location: params.location,
-          attendees: params.attendees?.map((email) => ({ email })),
+          attendees: validAttendees(params.attendees)?.map((email) => ({ email })),
           guestsCanModify: false,
           guestsCanInviteOthers: false,
           guestsCanSeeOtherGuests: false,
