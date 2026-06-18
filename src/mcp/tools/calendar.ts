@@ -75,8 +75,11 @@ export const calendarTools = {
 
   check_availability: {
     product: 'calendar' as const,
-    scopes: ['https://www.googleapis.com/auth/calendar.events'],
-    description: 'Check calendar availability (busy/free times) without exposing event details',
+    scopes: [
+      'https://www.googleapis.com/auth/calendar.events.freebusy',
+      'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
+    ],
+    description: 'Check calendar availability (busy/free times) without exposing event details. Query a wider time range than the user requested (e.g. the surrounding days or week, not just the exact slot) so that if the requested time is busy you can offer nearby free alternatives in your response.',
     parameters: z.object({
       calendarId: z.string().default('primary').describe('Calendar ID to check'),
       timeMin: z.string().describe('Start of time range in ISO 8601 format'),
