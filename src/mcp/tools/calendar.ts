@@ -113,7 +113,15 @@ export const calendarTools = {
         return { error: 'Calendar not found or not accessible' };
       }
 
-      return { timeZone, busy: calendarData.busy };
+      // Google returns busy intervals in UTC ('...Z'). Re-render them in the
+      // calendar's timezone so the times match the reported `timeZone` instead
+      // of silently mixing zones (e.g. 10:00Z is 13:00 in Asia/Jerusalem).
+      const busy = calendarData.busy.map((slot) => ({
+        start: dayjs(slot.start).tz(timeZone).format(),
+        end: dayjs(slot.end).tz(timeZone).format(),
+      }));
+
+      return { timeZone, busy };
     },
   },
 
